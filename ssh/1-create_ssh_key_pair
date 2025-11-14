@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 # create ssh key pair
-rm -f school school.pub
-ssh-keygen -t rsa -b 4096 -f school -N "betty"
+rm -f ./school ./school.pub
+ssh-keygen -t rsa -b 4096 -f ./school -N "betty"
