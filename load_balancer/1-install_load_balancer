@@ -1,86 +1,20 @@
 #!/usr/bin/env bash
+# Install and configure HAproxy on your lb-01 server.
+# Make sure that HAproxy can be managed via an init script
+sudo apt-get -y update
+sudo apt-get -y install haproxy
 
-# Bash script to configure HAProxy with two web servers and restart it
-
-# Variables
-HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
-WEB1_IP="44.202.121.92"
-WEB2_IP="44.204.148.231"
-LB_NAME="6914-lb-01"
-
-# Backup existing config
-if [ -f "$HAPROXY_CFG" ]; then
-    sudo cp "$HAPROXY_CFG" "${HAPROXY_CFG}.bak.$(date +%F_%T)"
-    echo "Backup of existing config created."
-fi
-
-# Write new HAProxy config
-sudo tee "$HAPROXY_CFG" > /dev/null <<EOF
-#---------------------------------------------------------------------
-# Global settings
-#---------------------------------------------------------------------
-global
-    log /dev/log local0
-    log /dev/log local1 notice
-    chroot /var/lib/haproxy
-    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
-    stats timeout 30s
-    user haproxy
-    group haproxy
-    daemon
-    maxconn 2000
-
-#---------------------------------------------------------------------
-# Default settings
-#---------------------------------------------------------------------
-defaults
-    log     global
-    mode    http
-    option  httplog
-    option  dontlognull
-    timeout connect 5000ms
-    timeout client  50000ms
-    timeout server  50000ms
-
-#---------------------------------------------------------------------
-# Frontend
-#---------------------------------------------------------------------
-frontend http-in
-    bind *:80
-    mode http
-    default_backend lb-backend
-    http-request set-header X-Served-By $LB_NAME
-
-#---------------------------------------------------------------------
-# Backend
-#---------------------------------------------------------------------
+echo \
+"
+frontend lb-frontend
+        bind *:80
+        mode http
+        default_backend lb-backend
 backend lb-backend
-    mode http
-    balance roundrobin
-    option httpchk GET /
-    server 6914-web-01 $WEB1_IP:80 check
-    server 6914-web-02 $WEB2_IP:80 check
+        balance roundrobin
+        server 6914-web-01 44.202.121.92:80 check
+        server 6914-web-02 44.204.148.231:80 check
+" | sudo tee -a /etc/haproxy/haproxy.cfg
 
-#---------------------------------------------------------------------
-# Stats
-#---------------------------------------------------------------------
-listen stats
-    bind *:8080
-    stats enable
-    stats uri /stats
-    stats refresh 10s
-    stats auth admin:password
-EOF
-
-# Validate config
-sudo haproxy -c -f "$HAPROXY_CFG"
-if [ $? -ne 0 ]; then
-    echo "HAProxy configuration is invalid! Aborting restart."
-    exit 1
-fi
-
-# Restart HAProxy
-sudo systemctl restart haproxy
-sudo systemctl status haproxy --no-pager
-
-echo "HAProxy configured and restarted successfully."
+echo "ENABLED=1" | sudo tee -a /etc/default/haproxy
+sudo service haproxy restart
