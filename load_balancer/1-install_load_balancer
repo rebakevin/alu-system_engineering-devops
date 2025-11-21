@@ -1,4 +1,21 @@
-# /etc/haproxy/haproxy.cfg
+#!/usr/bin/env bash
+
+# Bash script to configure HAProxy with two web servers and restart it
+
+# Variables
+HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
+WEB1_IP="44.202.121.92"
+WEB2_IP="44.204.148.231"
+LB_NAME="6914-lb-01"
+
+# Backup existing config
+if [ -f "$HAPROXY_CFG" ]; then
+    sudo cp "$HAPROXY_CFG" "${HAPROXY_CFG}.bak.$(date +%F_%T)"
+    echo "Backup of existing config created."
+fi
+
+# Write new HAProxy config
+sudo tee "$HAPROXY_CFG" > /dev/null <<EOF
 #---------------------------------------------------------------------
 # Global settings
 #---------------------------------------------------------------------
@@ -11,11 +28,10 @@ global
     user haproxy
     group haproxy
     daemon
-    # tune limits
     maxconn 2000
 
 #---------------------------------------------------------------------
-# Default settings for all proxies
+# Default settings
 #---------------------------------------------------------------------
 defaults
     log     global
@@ -25,13 +41,6 @@ defaults
     timeout connect 5000ms
     timeout client  50000ms
     timeout server  50000ms
-    errorfile 400 /etc/haproxy/errors/400.http
-    errorfile 403 /etc/haproxy/errors/403.http
-    errorfile 408 /etc/haproxy/errors/408.http
-    errorfile 500 /etc/haproxy/errors/500.http
-    errorfile 502 /etc/haproxy/errors/502.http
-    errorfile 503 /etc/haproxy/errors/503.http
-    errorfile 504 /etc/haproxy/errors/504.http
 
 #---------------------------------------------------------------------
 # Frontend
@@ -40,9 +49,7 @@ frontend http-in
     bind *:80
     mode http
     default_backend lb-backend
-
-    # Set X-Served-By header once (optional)
-    http-request set-header X-Served-By 6914-lb-01
+    http-request set-header X-Served-By $LB_NAME
 
 #---------------------------------------------------------------------
 # Backend
@@ -50,16 +57,30 @@ frontend http-in
 backend lb-backend
     mode http
     balance roundrobin
-    option httpchk GET /    # optional health check
-    server 6914-web-01 44.202.121.92:80 check
-    server 6914-web-02 44.204.148.231:80 check
+    option httpchk GET /
+    server 6914-web-01 $WEB1_IP:80 check
+    server 6914-web-02 $WEB2_IP:80 check
 
 #---------------------------------------------------------------------
-# Stats (optional, for monitoring)
+# Stats
 #---------------------------------------------------------------------
 listen stats
     bind *:8080
     stats enable
     stats uri /stats
     stats refresh 10s
-    stats auth admin:password   # change password
+    stats auth admin:password
+EOF
+
+# Validate config
+sudo haproxy -c -f "$HAPROXY_CFG"
+if [ $? -ne 0 ]; then
+    echo "HAProxy configuration is invalid! Aborting restart."
+    exit 1
+fi
+
+# Restart HAProxy
+sudo systemctl restart haproxy
+sudo systemctl status haproxy --no-pager
+
+echo "HAProxy configured and restarted successfully."
